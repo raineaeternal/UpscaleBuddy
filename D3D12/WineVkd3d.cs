@@ -35,24 +35,25 @@ public static unsafe class WineVkd3d
 		HRESULT result = ((delegate* unmanaged<void*, IUnknown*, D3D_FEATURE_LEVEL, Guid*, void**, HRESULT>)vtable[0])(core, adapter, D3D_FEATURE_LEVEL_11_0, &deviceId, (void**)device);
 		if (result.FAILED)
 			Service.PluginLog.Warning($"vkd3d-proton refused the D3D12 device (0x{result.Value:X8}), the AMD DLL path is unavailable");
-		else
-			CheckFsr4(*device);
 
 		return result;
 	}
 
 	/// <summary>
 	/// AMD's FSR 4 providers ask the device for ID3D12DeviceExt3 (the AGS extension), which older vkd3d-proton builds don't have, and
-	/// the DLL then only offers FSR 3.1. A prefix keeps the vkd3d-proton of the Proton that created it
+	/// the DLL then only offers FSR 3.1. A prefix keeps the vkd3d-proton of the Proton that created it. Logged for any device, since
+	/// the answer is the first thing to know when FSR 4 doesn't show up
 	/// </summary>
-	private static void CheckFsr4(ID3D12Device* device)
+	public static void CheckFsr4(ID3D12Device* device)
 	{
 		Guid deviceExt3 = new("3aefa75c-c9f3-4b7f-a180-5df695d083bf");
 		void* extension;
 		if (((IUnknown*)device)->QueryInterface(&deviceExt3, &extension).SUCCEEDED)
 			((IUnknown*)extension)->Release();
 		else
-			Service.PluginLog.Warning("The prefix's vkd3d-proton is too old for FSR 4 (no ID3D12DeviceExt3), the AMD DLL path stays on FSR 3.1");
+			Service.PluginLog.Warning(IsWine
+				? "The prefix's vkd3d-proton is too old for FSR 4 (no ID3D12DeviceExt3), the AMD DLL path stays on FSR 3.1"
+				: "The D3D12 device has no ID3D12DeviceExt3, AMD's FSR 4 providers may not be offered");
 	}
 
 	private static nint LoadCore()

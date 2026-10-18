@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Numerics;
 using System.Runtime.InteropServices;
 
@@ -143,32 +144,43 @@ public unsafe class FfxFrameGenerator: IFrameGenerator
 				BackBufferFormat = Format(DXGI_FORMAT_B8G8R8A8_UNORM),
 			};
 
-			// The loader defaults to FSR 3.1 frame generation, the DLL also holds the FSR 4 one
-			OverrideVersion fsr4 = new() { Header = { Type = DescOverrideVersion } };
-			foreach ((ulong id, string name) in ProviderVersions(DescCreateFrameGeneration, this.bridge.Device12))
-			{
-				if (name.StartsWith("4.", StringComparison.Ordinal))
-					fsr4.VersionId = id;
-			}
-
-			if (fsr4.VersionId != 0)
-			{
-				backend.Header.Next = &fsr4.Header;
-				try
-				{
-					this.context = CreateContext(&create.Header, "ffxCreateContext (frame generation)");
-				}
-				catch (Exception e)
-				{
-					Service.PluginLog.Warning(e, "FSR 4 frame generation unavailable, using the default one");
-					backend.Header.Next = null;
-				}
-			}
-
-			if (this.context == 0)
-				this.context = CreateContext(&create.Header, "ffxCreateContext (frame generation)");
-
+			// The loader's own pick is the baseline, it is FSR 4 where the driver registers it (Windows). Only where it settles for
+			// FSR 3.1 (Wine, which needs the driver library in the prefix) is the DLL's FSR 4 provider asked for
+			this.context = CreateContext(&create.Header, "ffxCreateContext (frame generation)");
 			string? provider = ProviderName(this.context);
+			if (provider == null || !provider.StartsWith("4.", StringComparison.Ordinal))
+			{
+				(ulong Id, string Name)[] versions = ProviderVersions(DescCreateFrameGeneration, this.bridge.Device12);
+				// Warning since the usual Dalamud log level hides anything lower
+				Service.PluginLog.Warning($"Frame generation provider {provider ?? "unknown"}, offered: " +
+				                          (versions.Length == 0 ? "none listed" : string.Join(", ", versions.Select(v => $"{v.Name} (0x{v.Id:X})"))));
+				OverrideVersion fsr4 = new() { Header = { Type = DescOverrideVersion } };
+				foreach ((ulong id, string name) in versions)
+				{
+					if (name.StartsWith("4.", StringComparison.Ordinal))
+						fsr4.VersionId = id;
+				}
+
+				if (fsr4.VersionId != 0)
+				{
+					Destroy(ref this.context);
+					backend.Header.Next = &fsr4.Header;
+					try
+					{
+						this.context = CreateContext(&create.Header, "ffxCreateContext (frame generation)");
+					}
+					catch (Exception e)
+					{
+						Service.PluginLog.Warning(e, "FSR 4 frame generation unavailable, using the default one");
+					}
+
+					backend.Header.Next = null;
+					if (this.context == 0)
+						this.context = CreateContext(&create.Header, "ffxCreateContext (frame generation)");
+				}
+			}
+
+			provider = ProviderName(this.context);
 			this.Name = provider != null ? $"FSR {provider} frame generation (AMD DLL, D3D12)" : "FSR frame generation (AMD DLL, D3D12)";
 		}
 		catch

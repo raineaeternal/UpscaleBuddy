@@ -96,6 +96,7 @@ public unsafe class Bridge: IDisposable
 			adapter->Release();
 			ThrowIfFailed(deviceResult);
 			this.device12 = createdDevice;
+			WineVkd3d.CheckFsr4(createdDevice);
 
 			D3D12_COMMAND_QUEUE_DESC queueDesc = new() { Type = D3D12_COMMAND_LIST_TYPE_DIRECT };
 			ID3D12CommandQueue* createdQueue;
